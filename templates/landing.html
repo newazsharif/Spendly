@@ -16,7 +16,9 @@
             on budget — without the spreadsheet headache.
         </p>
         <div class="hero-actions">
+            {% if not session.get('user_id') %}
             <a href="{{ url_for('register') }}" class="btn-hero">Create free account</a>
+            {% endif %}
             <a href="#" class="btn-hero" id="video-open">See how it works</a>
         </div>
     </div>
@@ -82,6 +84,7 @@
     </div>
 </section>
 
+{% if not session.get('user_id') %}
 <section class="cta-section">
     <div class="cta-inner">
         <h2 class="cta-title">Ready to take control?</h2>
@@ -89,6 +92,7 @@
         <a href="{{ url_for('register') }}" class="btn-primary">Create free account</a>
     </div>
 </section>
+{% endif %}
 
 <div class="modal" id="video-modal" hidden>
     <div class="modal-dialog" role="dialog" aria-modal="true" aria-label="How Spendly works">
