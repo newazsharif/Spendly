@@ -29,7 +29,7 @@ def test_get_login(client):
 def test_valid_login(client):
     resp = login(client)
     assert resp.status_code == 302
-    assert resp.headers["Location"].endswith("/")
+    assert resp.headers["Location"].endswith("/profile")
     assert user_id(client) is not None
 
 

@@ -5,7 +5,7 @@ import sqlite3
 from flask import Flask, flash, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash
 
-from database.db import create_user, get_db, get_user_by_email, init_db, seed_db
+from database.db import create_user, get_db, get_user_by_email, get_user_by_id, init_db, seed_db
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -15,6 +15,12 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 with app.app_context():
     init_db()
     seed_db()
+
+
+@app.context_processor
+def inject_current_user():
+    user_id = session.get("user_id")
+    return {"current_user": get_user_by_id(user_id) if user_id else None}
 
 
 # ------------------------------------------------------------------ #
@@ -81,7 +87,7 @@ def login():
         else:
             session.clear()
             session["user_id"] = user["id"]
-            return redirect(url_for("landing"))
+            return redirect(url_for("profile"))
 
     return render_template("login.html", error=error, email=email), 400
 
@@ -107,9 +113,53 @@ def logout():
     return redirect(url_for("login"))
 
 
+# Hardcoded until Step 5 wires the profile page to the database.
+PROFILE_USER = {
+    "name": "Demo User",
+    "email": "demo@spendly.com",
+    "member_since": "January 2026",
+}
+
+PROFILE_TRANSACTIONS = [
+    {"date": "12 Oct 2026", "description": "Lunch with team", "category": "Food", "badge": "badge-food", "amount": "450.00"},
+    {"date": "10 Oct 2026", "description": "Metro card recharge", "category": "Transport", "badge": "badge-transport", "amount": "120.50"},
+    {"date": "08 Oct 2026", "description": "Electricity bill", "category": "Bills", "badge": "badge-bills", "amount": "1,800.00"},
+    {"date": "05 Oct 2026", "description": "Pharmacy", "category": "Health", "badge": "badge-health", "amount": "650.00"},
+    {"date": "03 Oct 2026", "description": "Movie tickets", "category": "Entertainment", "badge": "badge-entertainment", "amount": "350.00"},
+    {"date": "01 Oct 2026", "description": "Headphones", "category": "Shopping", "badge": "badge-shopping", "amount": "1,999.00"},
+]
+
+PROFILE_CATEGORIES = [
+    {"name": "Shopping", "total": "1,999.00", "percent": 33, "bar": "bar-shopping"},
+    {"name": "Bills", "total": "1,800.00", "percent": 30, "bar": "bar-bills"},
+    {"name": "Health", "total": "650.00", "percent": 11, "bar": "bar-health"},
+    {"name": "Food", "total": "450.00", "percent": 7, "bar": "bar-food"},
+    {"name": "Entertainment", "total": "350.00", "percent": 6, "bar": "bar-entertainment"},
+]
+for _cat in PROFILE_CATEGORIES:
+    _cat["pct_class"] = "pct-%d" % (5 * round(_cat["percent"] / 5))
+
+PROFILE_STATS = {
+    "total_spent": "5,369.50",
+    "transaction_count": len(PROFILE_TRANSACTIONS),
+    "top_category": PROFILE_CATEGORIES[0]["name"],
+}
+
+
 @app.route("/profile")
 def profile():
-    return "Profile page — coming in Step 4"
+    if not session.get("user_id"):
+        return redirect(url_for("login"))
+
+    user = dict(PROFILE_USER)
+    user["initials"] = "".join(w[0] for w in user["name"].split()[:2]).upper()
+    return render_template(
+        "profile.html",
+        user=user,
+        stats=PROFILE_STATS,
+        transactions=PROFILE_TRANSACTIONS,
+        categories=PROFILE_CATEGORIES,
+    )
 
 
 @app.route("/expenses/add")
