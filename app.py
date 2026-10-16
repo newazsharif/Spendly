@@ -1,10 +1,12 @@
 import os
 import re
 import sqlite3
+from datetime import datetime
 
 from flask import Flask, flash, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash
 
+from database import queries
 from database.db import create_user, get_db, get_user_by_email, get_user_by_id, init_db, seed_db
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -113,52 +115,73 @@ def logout():
     return redirect(url_for("login"))
 
 
-# Hardcoded until Step 5 wires the profile page to the database.
-PROFILE_USER = {
-    "name": "Demo User",
-    "email": "demo@spendly.com",
-    "member_since": "January 2026",
-}
+CATEGORY_SLUGS = {"food", "transport", "bills", "health", "entertainment", "shopping", "other"}
 
-PROFILE_TRANSACTIONS = [
-    {"date": "12 Oct 2026", "description": "Lunch with team", "category": "Food", "badge": "badge-food", "amount": "450.00"},
-    {"date": "10 Oct 2026", "description": "Metro card recharge", "category": "Transport", "badge": "badge-transport", "amount": "120.50"},
-    {"date": "08 Oct 2026", "description": "Electricity bill", "category": "Bills", "badge": "badge-bills", "amount": "1,800.00"},
-    {"date": "05 Oct 2026", "description": "Pharmacy", "category": "Health", "badge": "badge-health", "amount": "650.00"},
-    {"date": "03 Oct 2026", "description": "Movie tickets", "category": "Entertainment", "badge": "badge-entertainment", "amount": "350.00"},
-    {"date": "01 Oct 2026", "description": "Headphones", "category": "Shopping", "badge": "badge-shopping", "amount": "1,999.00"},
-]
 
-PROFILE_CATEGORIES = [
-    {"name": "Shopping", "total": "1,999.00", "percent": 33, "bar": "bar-shopping"},
-    {"name": "Bills", "total": "1,800.00", "percent": 30, "bar": "bar-bills"},
-    {"name": "Health", "total": "650.00", "percent": 11, "bar": "bar-health"},
-    {"name": "Food", "total": "450.00", "percent": 7, "bar": "bar-food"},
-    {"name": "Entertainment", "total": "350.00", "percent": 6, "bar": "bar-entertainment"},
-]
-for _cat in PROFILE_CATEGORIES:
-    _cat["pct_class"] = "pct-%d" % (5 * round(_cat["percent"] / 5))
+def _cat_slug(category):
+    slug = (category or "").lower()
+    return slug if slug in CATEGORY_SLUGS else "other"
 
-PROFILE_STATS = {
-    "total_spent": "5,369.50",
-    "transaction_count": len(PROFILE_TRANSACTIONS),
-    "top_category": PROFILE_CATEGORIES[0]["name"],
-}
+
+# ---- [SECTION 1: transaction history] ---------------------------- #
+def _build_transactions(user_id):
+    return [
+        {
+            "date": datetime.strptime(t["date"], "%Y-%m-%d").strftime("%d %b %Y"),
+            "description": t["description"],
+            "category": t["category"],
+            "badge": "badge-" + _cat_slug(t["category"]),
+            "amount": "{:,.2f}".format(t["amount"]),
+        }
+        for t in queries.get_recent_transactions(user_id)
+    ]
+# ---- [END SECTION 1] --------------------------------------------- #
+
+
+# ---- [SECTION 2: summary stats] ---------------------------------- #
+def _build_stats(user_id):
+    stats = queries.get_summary_stats(user_id)
+    return {
+        "total_spent": "{:,.2f}".format(stats["total_spent"]),
+        "transaction_count": stats["transaction_count"],
+        "top_category": stats["top_category"],
+    }
+# ---- [END SECTION 2] --------------------------------------------- #
+
+
+# ---- [SECTION 3: category breakdown] ----------------------------- #
+def _build_categories(user_id):
+    return [
+        {
+            "name": c["name"],
+            "total": "{:,.2f}".format(c["amount"]),
+            "percent": c["pct"],
+            "bar": "bar-" + _cat_slug(c["name"]),
+            "pct_class": "pct-%d" % (5 * round(c["pct"] / 5)),
+        }
+        for c in queries.get_category_breakdown(user_id)
+    ]
+# ---- [END SECTION 3] --------------------------------------------- #
 
 
 @app.route("/profile")
 def profile():
-    if not session.get("user_id"):
+    user_id = session.get("user_id")
+    if not user_id:
         return redirect(url_for("login"))
 
-    user = dict(PROFILE_USER)
+    user = queries.get_user_by_id(user_id)
+    if user is None:
+        session.clear()
+        return redirect(url_for("login"))
+
     user["initials"] = "".join(w[0] for w in user["name"].split()[:2]).upper()
     return render_template(
         "profile.html",
         user=user,
-        stats=PROFILE_STATS,
-        transactions=PROFILE_TRANSACTIONS,
-        categories=PROFILE_CATEGORIES,
+        stats=_build_stats(user_id),
+        transactions=_build_transactions(user_id),
+        categories=_build_categories(user_id),
     )
 
 
