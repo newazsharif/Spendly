@@ -15,6 +15,31 @@
             </div>
         </div>
 
+        {% for message in get_flashed_messages() %}
+        <div class="profile-notice">{{ message }}</div>
+        {% endfor %}
+
+        <div class="profile-filter">
+            <form class="filter-form" method="get" action="{{ url_for('profile') }}">
+                <div class="filter-field">
+                    <label for="start_date">Start date</label>
+                    <input type="date" id="start_date" name="start_date" value="{{ start_date }}">
+                </div>
+                <div class="filter-field">
+                    <label for="end_date">End date</label>
+                    <input type="date" id="end_date" name="end_date" value="{{ end_date }}">
+                </div>
+                <button type="submit" class="filter-apply">Apply</button>
+            </form>
+            <nav class="filter-presets" aria-label="Date presets">
+                {% for p in presets %}
+                <a class="filter-preset{% if p.key == active_preset %} is-active{% endif %}"
+                   href="{{ url_for('profile', start_date=p.start, end_date=p.end) }}">{{ p.label }}</a>
+                {% endfor %}
+            </nav>
+            <p class="filter-range">{{ range_label }}</p>
+        </div>
+
         <div class="profile-stats">
             <div class="profile-stat">
                 <span class="profile-stat-label">Total spent</span>
@@ -57,7 +82,7 @@
                     </table>
                 </div>
                 {% else %}
-                <p class="profile-empty">No transactions yet.</p>
+                <p class="profile-empty">{{ "No transactions in this period." if is_filtered else "No transactions yet." }}</p>
                 {% endif %}
             </div>
 
