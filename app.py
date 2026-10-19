@@ -1,7 +1,7 @@
 import os
 import re
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime
 
 from flask import Flask, flash, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash
@@ -124,7 +124,7 @@ def _cat_slug(category):
 
 
 # ---- [SECTION 1: transaction history] ---------------------------- #
-def _build_transactions(user_id):
+def _build_transactions(user_id, start_date=None, end_date=None):
     return [
         {
             "date": datetime.strptime(t["date"], "%Y-%m-%d").strftime("%d %b %Y"),
@@ -133,14 +133,16 @@ def _build_transactions(user_id):
             "badge": "badge-" + _cat_slug(t["category"]),
             "amount": "{:,.2f}".format(t["amount"]),
         }
-        for t in queries.get_recent_transactions(user_id)
+        for t in queries.get_recent_transactions(
+            user_id, start_date=start_date, end_date=end_date
+        )
     ]
 # ---- [END SECTION 1] --------------------------------------------- #
 
 
 # ---- [SECTION 2: summary stats] ---------------------------------- #
-def _build_stats(user_id):
-    stats = queries.get_summary_stats(user_id)
+def _build_stats(user_id, start_date=None, end_date=None):
+    stats = queries.get_summary_stats(user_id, start_date=start_date, end_date=end_date)
     return {
         "total_spent": "{:,.2f}".format(stats["total_spent"]),
         "transaction_count": stats["transaction_count"],
@@ -150,7 +152,7 @@ def _build_stats(user_id):
 
 
 # ---- [SECTION 3: category breakdown] ----------------------------- #
-def _build_categories(user_id):
+def _build_categories(user_id, start_date=None, end_date=None):
     return [
         {
             "name": c["name"],
@@ -159,9 +161,50 @@ def _build_categories(user_id):
             "bar": "bar-" + _cat_slug(c["name"]),
             "pct_class": "pct-%d" % (5 * round(c["pct"] / 5)),
         }
-        for c in queries.get_category_breakdown(user_id)
+        for c in queries.get_category_breakdown(
+            user_id, start_date=start_date, end_date=end_date
+        )
     ]
 # ---- [END SECTION 3] --------------------------------------------- #
+
+
+# ---- [SECTION 4: date filter] ------------------------------------ #
+PRESET_LABELS = {
+    "this_month": "This month",
+    "last_3_months": "Last 3 months",
+    "all_time": "All time",
+}
+
+
+def _parse_date(value):
+    """Return a date, None for an empty value, or raise ValueError."""
+    if not value:
+        return None
+    return datetime.strptime(value, "%Y-%m-%d").date()
+
+
+def _preset_ranges(today):
+    year, month = today.year, today.month - 2
+    if month <= 0:
+        month += 12
+        year -= 1
+    return {
+        "this_month": (today.replace(day=1).isoformat(), today.isoformat()),
+        "last_3_months": (date(year, month, 1).isoformat(), today.isoformat()),
+        "all_time": (None, None),
+    }
+
+
+def _range_label(start, end):
+    fmt = "%d %b %Y"
+    if start and end:
+        return "Showing %s – %s" % (start.strftime(fmt), end.strftime(fmt))
+    if start:
+        return "Showing from %s" % start.strftime(fmt)
+    if end:
+        return "Showing up to %s" % end.strftime(fmt)
+    return "Showing all time"
+# ---- [END SECTION 4] --------------------------------------------- #
 
 
 @app.route("/profile")
@@ -176,12 +219,43 @@ def profile():
         return redirect(url_for("login"))
 
     user["initials"] = "".join(w[0] for w in user["name"].split()[:2]).upper()
+
+    invalid = False
+    bounds = []
+    for key in ("start_date", "end_date"):
+        try:
+            bounds.append(_parse_date(request.args.get(key, "").strip()))
+        except ValueError:
+            bounds.append(None)
+            invalid = True
+    if invalid:
+        flash("Invalid date ignored.", "error")
+    start, end = bounds
+    if start and end and start > end:
+        start, end = end, start
+
+    start_iso = start.isoformat() if start else None
+    end_iso = end.isoformat() if end else None
+    presets = _preset_ranges(date.today())
+    active_preset = next(
+        (key for key, pair in presets.items() if pair == (start_iso, end_iso)), "custom"
+    )
+
     return render_template(
         "profile.html",
         user=user,
-        stats=_build_stats(user_id),
-        transactions=_build_transactions(user_id),
-        categories=_build_categories(user_id),
+        stats=_build_stats(user_id, start_iso, end_iso),
+        transactions=_build_transactions(user_id, start_iso, end_iso),
+        categories=_build_categories(user_id, start_iso, end_iso),
+        start_date=start_iso or "",
+        end_date=end_iso or "",
+        active_preset=active_preset,
+        range_label=_range_label(start, end),
+        presets=[
+            {"key": key, "label": PRESET_LABELS[key], "start": s, "end": e}
+            for key, (s, e) in presets.items()
+        ],
+        is_filtered=bool(start_iso or end_iso),
     )
 
 
